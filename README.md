@@ -1,2 +1,2 @@
 # blognone-feed
-Custom Feed Blognone
+ตามคำที่ว่า "อยากได้ต้องทำเอง"
