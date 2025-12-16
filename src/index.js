@@ -1,14 +1,18 @@
 import { XMLParser } from "fast-xml-parser";
 import he from "he";
-import cheerio from "cheerio";
+import { load } from "cheerio";
 
 const FEED_URL = "https://www.blognone.com/node/feed";
 
 export default {
     async fetch(request, env, ctx) {
         try {
-            // 1) ดึง RSS จากเว็บ
-            const res = await fetch(FEED_URL);
+            const res = await fetch(FEED_URL, {
+                headers: {
+                    "User-Agent": "Mozilla/5.0 (compatible; BlognoneWorker/1.0;)"
+                }
+            });
+
             if (!res.ok) {
                 return new Response(`Fetch failed: ${res.status}`, { status: 500 });
             }
@@ -19,7 +23,6 @@ export default {
             const rss = parser.parse(xml);
 
             // 3) Normalize item ให้เป็น array
-            // ตรวจสอบความปลอดภัย: กรณีไม่มี item เลย หรือโครงสร้างผิดพลาด
             const channelItem = rss?.rss?.channel?.item;
             const items = Array.isArray(channelItem)
                 ? channelItem
@@ -33,18 +36,9 @@ export default {
                 const decodedHtml = he.decode(item.description || "");
 
                 // parse HTML
-                const $ = cheerio.load(decodedHtml);
-
-                /**
-                 * 5) ลบส่วนที่ไม่ต้องการ
-                 */
-                // span แรก = หัวข้อซ้ำ
+                const $ = load(decodedHtml);
                 $("span").first().remove();
-
-                // ผู้เขียน
                 $("span a[title='View user profile.']").parent().remove();
-
-                // เวลา
                 $("time").parent("span").remove();
 
                 /**
@@ -61,17 +55,16 @@ export default {
                 };
             });
 
-            // 7) ใช้งานต่อ: แทนที่จะเขียนไฟล์ เราส่ง JSON กลับไปเป็น Response
+            // 7) Return JSON
             return new Response(JSON.stringify(results, null, 2), {
                 headers: {
                     "content-type": "application/json; charset=UTF-8",
-                    // เพิ่ม CORS หากต้องการเรียกจาก Frontend โดยตรง
                     "Access-Control-Allow-Origin": "*",
+                    "Cache-Control": "public, max-age=300, s-maxage=300"
                 },
             });
 
         } catch (err) {
-            // Error Handling
             return new Response(JSON.stringify({ error: err.message }), {
                 status: 500,
                 headers: { "content-type": "application/json" },
