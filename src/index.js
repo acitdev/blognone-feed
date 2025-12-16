@@ -37,7 +37,7 @@ export default {
 
                 const cleanContent = $(".field--name-body .field-item").html()?.trim() || "";
 
-                item.description = cleanContent;
+                item.description = he.encode(cleanContent);
             });
 
             const builder = new XMLBuilder({
