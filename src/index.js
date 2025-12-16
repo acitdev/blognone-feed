@@ -1,4 +1,4 @@
-import { XMLParser } from "fast-xml-parser";
+import { XMLParser, XMLBuilder } from "fast-xml-parser";
 import he from "he";
 import { load } from "cheerio";
 
@@ -12,63 +12,59 @@ export default {
                     "User-Agent": "Mozilla/5.0 (compatible; BlognoneWorker/1.0;)"
                 }
             });
-
-            if (!res.ok) {
-                return new Response(`Fetch failed: ${res.status}`, { status: 500 });
-            }
+            if (!res.ok) throw new Error(`Fetch failed: ${res.status}`);
             const xml = await res.text();
 
-            // 2) Parse XML
-            const parser = new XMLParser({ ignoreAttributes: false });
-            const rss = parser.parse(xml);
+            const parser = new XMLParser({
+                ignoreAttributes: false,
+                parseTagValue: false
+            });
+            const rssObj = parser.parse(xml);
 
-            // 3) Normalize item ให้เป็น array
-            const channelItem = rss?.rss?.channel?.item;
-            const items = Array.isArray(channelItem)
-                ? channelItem
-                : channelItem
-                    ? [channelItem]
-                    : [];
+            let items = rssObj?.rss?.channel?.item;
+            if (!items) items = [];
+            if (!Array.isArray(items)) items = [items];
 
-            // 4) แปลงทุกบทความ
-            const results = items.map((item) => {
-                // decode HTML entities
-                const decodedHtml = he.decode(item.description || "");
+            items.forEach((item) => {
+                const rawDesc = item.description || "";
+                const decodedHtml = he.decode(typeof rawDesc === 'string' ? rawDesc : "");
 
-                // parse HTML
                 const $ = load(decodedHtml);
+
                 $("span").first().remove();
                 $("span a[title='View user profile.']").parent().remove();
                 $("time").parent("span").remove();
 
-                /**
-                 * 6) ดึง body เป็น HTML
-                 */
-                const contentHtml =
-                    $(".field--name-body .field-item").html()?.trim() || "";
+                const cleanContent = $(".field--name-body .field-item").html()?.trim() || "";
 
-                return {
-                    title: item.title,
-                    link: item.link,
-                    pubDate: item.pubDate,
-                    contentHtml,
-                };
+                item.description = cleanContent;
             });
 
-            // 7) Return JSON
-            return new Response(JSON.stringify(results, null, 2), {
+            const builder = new XMLBuilder({
+                ignoreAttributes: false,
+                format: true,
+                processEntities: false,
+                suppressBooleanAttributes: false
+            });
+
+            const outputXml = builder.build(rssObj);
+
+            return new Response(outputXml, {
                 headers: {
-                    "content-type": "application/json; charset=UTF-8",
+                    "content-type": "application/xml; charset=UTF-8",
+                    "Cache-Control": "public, max-age=300, s-maxage=300",
                     "Access-Control-Allow-Origin": "*",
-                    "Cache-Control": "public, max-age=300, s-maxage=300"
                 },
             });
 
         } catch (err) {
-            return new Response(JSON.stringify({ error: err.message }), {
-                status: 500,
-                headers: { "content-type": "application/json" },
-            });
+            return new Response(
+                `<?xml version="1.0"?><error>${err.message}</error>`,
+                {
+                    status: 500,
+                    headers: { "content-type": "application/xml" }
+                }
+            );
         }
     },
 };
